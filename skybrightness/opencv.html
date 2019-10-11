@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Sky Brightness Calculator</title>
+
+
+<style type="text/css">
+body {
+        background: #222;
+        color: #eee;
+        margin-top: 20px;
+        font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
+}
+</style>
+
+</head>
+<body>
+<h2>Sky Brightness Calculator</h2>
+<h3>Tool to calculate the sky brightness of an image of the night sky</h3>
+
+<p>For an accurate sky brightness measurement, the image should meet the following criteria:</p>
+<ul>
+  <li>The image should be of an area of the sky close to zenith</li>
+  <li>The exposure time should be at least 30 seconds</li>
+  <li>The camera's ISO setting should be between 800 and 3200</li>
+  <li>There should be plenty of stars visible</li>
+  <li>The image must be JPEG format and unprocessed</li>
+</ul>
+
+
+<p id="status">Webpage is loading - please wait...</p>
+<p id="CamSettings">Camera settings:</p>
+<p id="sbresult">Sky brightness:</p>
+<div>
+  <div class="inputoutput">
+    <img id="imageSrc" style="max-width:800px;" alt="" />
+    <p>Load a JPEG image</p>
+    <div class="caption"> <input type="file" id="fileInput" name="file" accept=".jpg, .jpeg, .JPG, .JPEG"/> </div>
+  </div>
+
+  <div class="inputoutput">
+    <br>
+    <canvas id="canvasOutput" style="max-width:800px;" ></canvas>
+    <div class="caption"> </div>
+  </div>
+</div>
+
+<p>Calculation is based on the image histogram formula from <a href="https://www.pbase.com/image/37608572">sky brightness calculation</a></p>
+<p><em>NOTE: Images analysed using this tool are NOT sent to any other computer.</em></p>
+
+<script type="text/javascript">
+imgElement = document.getElementById('imageSrc');
+let inputElement = document.getElementById('fileInput');
+inputElement.addEventListener('change', (e) => {
+  imgElement.src = URL.createObjectURL(e.target.files[0]);
+}, false);
+
+// Show wait cursor and hide result elements
+document.body.style.cursor = 'wait';
+document.getElementById("CamSettings").style.display = "none";
+document.getElementById("sbresult").style.display = "none";
+
+// Callback function after image has been loaded
+imgElement.onload = function() {
+
+let src = cv.imread(imgElement);
+cv.cvtColor(src, src, cv.COLOR_RGBA2GRAY, 0);
+let srcVec = new cv.MatVector();
+srcVec.push_back(src);
+let accumulate = false;
+let channels = [0];
+let histSize = [256];
+let ranges = [0, 255];
+let hist = new cv.Mat();
+let mask = new cv.Mat();
+let color = new cv.Scalar(255, 255, 255);
+let scale = 2;
+
+// Calculate the histogram
+cv.calcHist(srcVec, channels, mask, hist, histSize, ranges, accumulate);
+let result = cv.minMaxLoc(hist, mask);
+let maxval = result.maxVal;
+
+//document.getElementById('status').innerHTML = 'Result is ' + maxval;
+
+let dst = new cv.Mat.zeros(src.rows, histSize[0] * scale,
+                           cv.CV_8UC3);
+
+let mode_value = 0
+// draw histogram
+for (let i = 0; i < histSize[0]; i++) {
+    if (hist.data32F[i] == maxval) {
+        mode_value = i;
+    }
+    let binVal = hist.data32F[i] * src.rows / maxval;
+    let point1 = new cv.Point(i * scale, src.rows - 1);
+    let point2 = new cv.Point((i + 1) * scale - 1, src.rows - binVal);
+    cv.rectangle(dst, point1, point2, color, cv.FILLED);
+}
+
+document.getElementById("CamSettings").style.display = "block";
+document.getElementById("sbresult").style.display = "block";
+
+// Get EXIF data and calculate sky brightness
+delete imgElement.exifdata;     // Clear any previous exif data
+EXIF.getData(imgElement, function() {
+        var model = EXIF.getTag(this, "Model");
+        var iso = parseFloat(EXIF.getTag(this, "ISOSpeedRatings"));
+        var exps = parseFloat(EXIF.getTag(this, "ExposureTime"));
+        var fr = parseFloat(EXIF.getTag(this, "ApertureValue"));
+        if (isNaN(fr)) {
+            fr = parseFloat(EXIF.getTag(this, "Aperture"));
+        }
+        if (isNaN(fr)) {
+            fr = parseFloat(EXIF.getTag(this, "MaxApertureValue"));
+        }
+        /*
+        // From https://www.pbase.com/image/37608572
+        var pct = (mode_value/256.0) * 100.0;
+        var exp_m = exps/60.0;
+        var mins = exp_m * (iso / 800.0)*(50.0 / pct)*(4.0 / fr)*(4.0 / fr);
+        var skybrightness = 13.93 + (2.5 * Math.log10(mins*60.0));
+        */
+        var skybrightness = 13.93 + (2.5 * Math.log10((iso*exps)/((25/64)*fr*fr*mode_value)));
+
+        document.getElementById('CamSettings').innerHTML = 'Camera settings: ' + model + ', ISO ' + iso.toFixed(2) + ", Aperture " + fr.toFixed(2) + ", Exposure time " + exps;
+        document.getElementById('sbresult').innerHTML = 'Sky brightness: ' + skybrightness.toFixed(2) + " mag/arcsec<sup>2</sup>";
+});
+
+cv.imshow('canvasOutput', dst);
+
+src.delete(); dst.delete(); srcVec.delete(); mask.delete(); hist.delete();
+};
+
+function onOpenCvReady() {
+  document.body.style.cursor = 'default';
+  document.getElementById('status').innerHTML = '';
+}
+
+</script>
+
+<script async src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js" onload="onOpenCvReady();" type="text/javascript"></script>
+<script src="https://cdn.jsdelivr.net/npm/exif-js"></script>
+
+</body>
+</html>
